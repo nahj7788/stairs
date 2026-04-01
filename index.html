@@ -97,6 +97,61 @@
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 const W = 360, H = 580;
+
+// --- 효과음 (Web Audio API) ---
+let audioCtx = null;
+function getAC() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+function playSound(type) {
+  try {
+    const ac = getAC();
+    const o = ac.createOscillator();
+    const g = ac.createGain();
+    o.connect(g); g.connect(ac.destination);
+    const t = ac.currentTime;
+    if (type === 'jump') {
+      // 짧은 휙 소리 (주파수 올라감)
+      o.type = 'sine';
+      o.frequency.setValueAtTime(300, t);
+      o.frequency.linearRampToValueAtTime(600, t + 0.1);
+      g.gain.setValueAtTime(0.3, t);
+      g.gain.linearRampToValueAtTime(0, t + 0.12);
+      o.start(t); o.stop(t + 0.12);
+    } else if (type === 'land') {
+      // 통통 착지음
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(180, t);
+      o.frequency.linearRampToValueAtTime(80, t + 0.08);
+      g.gain.setValueAtTime(0.4, t);
+      g.gain.linearRampToValueAtTime(0, t + 0.1);
+      o.start(t); o.stop(t + 0.1);
+    } else if (type === 'gameover') {
+      // 떨어지는 소리 (주파수 내려감)
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(400, t);
+      o.frequency.linearRampToValueAtTime(80, t + 0.5);
+      g.gain.setValueAtTime(0.4, t);
+      g.gain.linearRampToValueAtTime(0, t + 0.5);
+      o.start(t); o.stop(t + 0.5);
+    } else if (type === 'milestone') {
+      // 점수 달성 성공음 (도미솔)
+      [261, 329, 392].forEach((freq, i) => {
+        const o2 = ac.createOscillator();
+        const g2 = ac.createGain();
+        o2.connect(g2); g2.connect(ac.destination);
+        o2.type = 'sine';
+        o2.frequency.setValueAtTime(freq, t + i * 0.1);
+        g2.gain.setValueAtTime(0.25, t + i * 0.1);
+        g2.gain.linearRampToValueAtTime(0, t + i * 0.1 + 0.15);
+        o2.start(t + i * 0.1); o2.stop(t + i * 0.1 + 0.15);
+      });
+      return;
+    }
+  } catch(e) {}
+}
+let lastMilestone = 0;
 const STAIR_W = 110, STAIR_H = 18, STAIR_STEP_X = 90;
 const PLAYER_W = 28, PLAYER_H = 32;
 const GRAVITY = 0.55, JUMP_POWER = -13, SCROLL_SPEED_BASE = 2.2;
@@ -136,7 +191,9 @@ function update() {
   for (const s of stairs) {
     const prevBottom = player.y + PLAYER_H - player.vy, curBottom = player.y + PLAYER_H;
     if (curBottom >= s.y && prevBottom <= s.y + s.h && player.x + PLAYER_W > s.x + 4 && player.x < s.x + s.w - 4 && player.vy >= 0) {
-      player.y = s.y - PLAYER_H; player.vy = 0; player.onGround = true;
+      player.y = s.y - PLAYER_H;
+      if (player.vy > 2) playSound('land');
+      player.vy = 0; player.onGround = true;
     }
   }
   if (player.y > H + 60) { endGame(); return; }
@@ -147,6 +204,7 @@ function update() {
     scrollY += diff * 0.1;
     score = Math.floor(scrollY / 20);
     document.getElementById('scoreDisplay').textContent = score;
+    if (Math.floor(score/10) > lastMilestone) { lastMilestone = Math.floor(score/10); playSound('milestone'); }
   }
   stairs = stairs.filter(s => s.y < H + 40);
   const minY = Math.min(...stairs.map(s => s.y));
@@ -196,11 +254,13 @@ function gameLoop() { if (!gameRunning) return; update(); draw(); requestAnimati
 
 function startGame() {
   document.getElementById('overlay').classList.add('hidden');
+  lastMilestone = 0;
   initGame(); gameRunning = true; gameLoop();
 }
 
 function endGame() {
   gameRunning = false;
+  playSound('gameover');
   if (score > best) best = score;
   document.getElementById('bestVal').textContent = best;
   document.getElementById('finalScore').textContent = score;
@@ -209,7 +269,7 @@ function endGame() {
   document.getElementById('overlay').classList.remove('hidden');
 }
 
-function doJump() { if (player && player.onGround && gameRunning) { player.vy = JUMP_POWER; player.onGround = false; } }
+function doJump() { if (player && player.onGround && gameRunning) { player.vy = JUMP_POWER; player.onGround = false; playSound('jump'); } }
 function moveLeft()  { if (!gameRunning) return; player.dir=-1; player.vx=-5; doJump(); }
 function moveRight() { if (!gameRunning) return; player.dir= 1; player.vx= 5; doJump(); }
 
