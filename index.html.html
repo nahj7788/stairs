@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;700&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; touch-action:none; }
+  body {
+    background: #0d0d1a;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    height: 100vh; font-family: 'Noto Sans KR', sans-serif;
+    overflow: hidden; user-select: none;
+  }
+  #gameWrapper {
+    position: relative; width: 360px; height: 580px;
+    background: #111126; border-radius: 20px; overflow: hidden;
+    border: 2px solid #2a2a4a; box-shadow: 0 0 60px rgba(100,80,255,0.2);
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+  #ui {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding: 14px 18px; display: flex;
+    justify-content: space-between; align-items: flex-start;
+    pointer-events: none; z-index: 10;
+  }
+  #scoreDisplay {
+    font-family: 'Black Han Sans', sans-serif; font-size: 32px;
+    color: #fff; text-shadow: 0 0 20px rgba(120,100,255,0.8); line-height: 1;
+  }
+  #bestDisplay { font-size: 12px; color: #8880cc; text-align: right; line-height: 1.5; }
+  #bestDisplay span { display: block; font-family: 'Black Han Sans', sans-serif; font-size: 18px; color: #a090ff; }
+  #overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: rgba(13,13,26,0.92); z-index: 20; backdrop-filter: blur(4px);
+  }
+  #overlay.hidden { display: none; }
+  .ov-title {
+    font-family: 'Black Han Sans', sans-serif; font-size: 36px; color: #fff;
+    margin-bottom: 6px; text-shadow: 0 0 30px rgba(140,100,255,0.9); letter-spacing: 2px;
+  }
+  .ov-sub { font-size: 13px; color: #7070aa; margin-bottom: 28px; }
+  .ov-score-box {
+    background: rgba(80,60,200,0.15); border: 1px solid rgba(120,100,255,0.3);
+    border-radius: 14px; padding: 14px 40px; text-align: center; margin-bottom: 28px;
+  }
+  .ov-score-label { font-size: 11px; color: #8880cc; margin-bottom: 4px; }
+  .ov-score-val {
+    font-family: 'Black Han Sans', sans-serif; font-size: 44px;
+    color: #c8b8ff; text-shadow: 0 0 20px rgba(140,100,255,0.6);
+  }
+  #startBtn {
+    background: linear-gradient(135deg, #7050e0, #a070ff); border: none;
+    border-radius: 50px; padding: 14px 48px;
+    font-family: 'Black Han Sans', sans-serif; font-size: 20px;
+    color: #fff; cursor: pointer; letter-spacing: 2px;
+    box-shadow: 0 4px 30px rgba(120,80,255,0.4); transition: transform 0.1s;
+  }
+  #startBtn:active { transform: scale(0.96); }
+  #controls { margin-top: 16px; display: flex; gap: 16px; }
+  .ctrl-btn {
+    width: 160px; height: 64px; border-radius: 16px; border: none;
+    font-family: 'Black Han Sans', sans-serif; font-size: 16px; letter-spacing: 1px;
+    cursor: pointer; transition: transform 0.08s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    -webkit-tap-highlight-color: transparent;
+    background: linear-gradient(135deg, #2a2060, #3a2d90);
+    color: #b0a0ff; border: 1px solid rgba(120,100,255,0.3);
+  }
+  .ctrl-btn:active { transform: scale(0.94); }
+</style>
+</head>
+<body>
+<div id="gameWrapper">
+  <canvas id="c" width="360" height="580"></canvas>
+  <div id="ui">
+    <div id="scoreDisplay">0</div>
+    <div id="bestDisplay">최고<span id="bestVal">0</span></div>
+  </div>
+  <div id="overlay">
+    <div class="ov-title">무한의 계단</div>
+    <div class="ov-sub">계단을 밟아 최대한 높이 올라가세요</div>
+    <div class="ov-score-box" id="scoreBox" style="display:none;">
+      <div class="ov-score-label">점수</div>
+      <div class="ov-score-val" id="finalScore">0</div>
+    </div>
+    <button id="startBtn">시작하기</button>
+  </div>
+</div>
+<div id="controls">
+  <button class="ctrl-btn" id="btnLeft">← 왼쪽</button>
+  <button class="ctrl-btn" id="btnRight">오른쪽 →</button>
+</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 360, H = 580;
+const STAIR_W = 110, STAIR_H = 18, STAIR_STEP_X = 90;
+const PLAYER_W = 28, PLAYER_H = 32;
+const GRAVITY = 0.55, JUMP_POWER = -13, SCROLL_SPEED_BASE = 2.2;
+let score, best = 0, gameRunning = false;
+let player, stairs, scrollY, scrollSpeed, frameCount;
+const STAIR_COLORS = ['#5040b0','#4433a0','#3d2e94','#6050c0'];
+const GLOW_COLORS  = ['rgba(120,100,255,0.5)','rgba(100,80,220,0.4)'];
+let stairDir = 1, stairX = 50;
+
+function initGame() {
+  score = 0; scrollY = 0; scrollSpeed = SCROLL_SPEED_BASE; frameCount = 0;
+  stairDir = 1; stairX = 50;
+  player = { x: W/2 - PLAYER_W/2, y: H-120, vy: 0, vx: 0, dir: 1, onGround: false, frame: 0, frameTimer: 0 };
+  stairs = [];
+  let sy = H - 60;
+  for (let i = 0; i < 14; i++) { addStair(sy, i === 0); sy -= 70; }
+}
+
+function addStair(y, isGround) {
+  if (isGround) { stairs.push({ x:0, y, w:W, h:STAIR_H, color:'#5040b0', glow:'rgba(80,60,200,0.4)' }); return; }
+  let x = stairX;
+  stairX += stairDir * STAIR_STEP_X;
+  if (stairX + STAIR_W > W - 10) { stairDir = -1; stairX = W - STAIR_W - 10; }
+  if (stairX < 10) { stairDir = 1; stairX = 10; }
+  const ci = Math.floor(Math.random() * STAIR_COLORS.length);
+  stairs.push({ x, y, w:STAIR_W, h:STAIR_H, color:STAIR_COLORS[ci], glow:GLOW_COLORS[ci%2] });
+}
+
+function update() {
+  if (!gameRunning) return;
+  frameCount++;
+  scrollSpeed = SCROLL_SPEED_BASE + score * 0.012;
+  player.vy += GRAVITY; player.y += player.vy; player.x += player.vx; player.vx *= 0.85;
+  if (player.x < 0) player.x = 0;
+  if (player.x + PLAYER_W > W) player.x = W - PLAYER_W;
+  player.onGround = false;
+  for (const s of stairs) {
+    const prevBottom = player.y + PLAYER_H - player.vy, curBottom = player.y + PLAYER_H;
+    if (curBottom >= s.y && prevBottom <= s.y + s.h && player.x + PLAYER_W > s.x + 4 && player.x < s.x + s.w - 4 && player.vy >= 0) {
+      player.y = s.y - PLAYER_H; player.vy = 0; player.onGround = true;
+    }
+  }
+  if (player.y > H + 60) { endGame(); return; }
+  if (player.y < H * 0.35) {
+    const diff = H * 0.35 - player.y;
+    player.y += diff * 0.1;
+    for (const s of stairs) s.y += diff * 0.1;
+    scrollY += diff * 0.1;
+    score = Math.floor(scrollY / 20);
+    document.getElementById('scoreDisplay').textContent = score;
+  }
+  stairs = stairs.filter(s => s.y < H + 40);
+  const minY = Math.min(...stairs.map(s => s.y));
+  if (minY > -300) addStair(minY - (58 + Math.random() * 18));
+  if (player.onGround) { player.frameTimer++; if (player.frameTimer > 8) { player.frame = (player.frame+1)%2; player.frameTimer=0; } }
+  else player.frame = 2;
+}
+
+function drawBG() {
+  const grad = ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#08081a'); grad.addColorStop(1,'#111128');
+  ctx.fillStyle = grad; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = 'rgba(200,190,255,0.25)';
+  [[30,40],[80,110],[200,60],[310,140],[150,200],[280,300],[50,350],[340,440],[120,480],[260,520]].forEach(([sx,sy])=>{
+    ctx.beginPath(); ctx.arc(sx,(sy+scrollY*0.05)%H,1.2,0,Math.PI*2); ctx.fill();
+  });
+}
+
+function drawStairs() {
+  for (const s of stairs) {
+    ctx.shadowColor = s.glow; ctx.shadowBlur = 14;
+    ctx.fillStyle = s.color; ctx.beginPath();
+    ctx.roundRect(s.x, s.y, s.w, s.h, 6); ctx.fill(); ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.beginPath();
+    ctx.roundRect(s.x+2, s.y+2, s.w-4, 5, 3); ctx.fill();
+  }
+}
+
+function drawPlayer() {
+  const x = Math.round(player.x), y = Math.round(player.y);
+  ctx.fillStyle = 'rgba(100,80,255,0.18)'; ctx.beginPath();
+  ctx.ellipse(x+PLAYER_W/2, y+PLAYER_H+2, 14, 5, 0, 0, Math.PI*2); ctx.fill();
+  ctx.save();
+  if (player.dir === -1) { ctx.translate(x+PLAYER_W,y); ctx.scale(-1,1); ctx.translate(-x,-y); }
+  ctx.fillStyle = '#7060e0'; ctx.beginPath(); ctx.roundRect(x+6,y+14,16,18,4); ctx.fill();
+  ctx.fillStyle = '#f0c896'; ctx.beginPath(); ctx.arc(x+PLAYER_W/2,y+10,10,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(x+PLAYER_W/2+3,y+9,2,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#5040b0';
+  const la = player.frame===0?0:3;
+  ctx.fillRect(x+7,y+30,6,10+la); ctx.fillRect(x+15,y+30,6,10+(3-la));
+  if (!player.onGround) { ctx.fillStyle='#f0c896'; ctx.fillRect(x+2,y+14,5,10); ctx.fillRect(x+21,y+14,5,10); }
+  ctx.restore();
+}
+
+function draw() { drawBG(); drawStairs(); drawPlayer(); }
+function gameLoop() { if (!gameRunning) return; update(); draw(); requestAnimationFrame(gameLoop); }
+
+function startGame() {
+  document.getElementById('overlay').classList.add('hidden');
+  initGame(); gameRunning = true; gameLoop();
+}
+
+function endGame() {
+  gameRunning = false;
+  if (score > best) best = score;
+  document.getElementById('bestVal').textContent = best;
+  document.getElementById('finalScore').textContent = score;
+  document.getElementById('scoreBox').style.display = 'block';
+  document.getElementById('startBtn').textContent = '다시하기';
+  document.getElementById('overlay').classList.remove('hidden');
+}
+
+function doJump() { if (player && player.onGround && gameRunning) { player.vy = JUMP_POWER; player.onGround = false; } }
+function moveLeft()  { if (!gameRunning) return; player.dir=-1; player.vx=-5; doJump(); }
+function moveRight() { if (!gameRunning) return; player.dir= 1; player.vx= 5; doJump(); }
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+const btnL = document.getElementById('btnLeft');
+const btnR = document.getElementById('btnRight');
+btnL.addEventListener('mousedown', moveLeft);
+btnR.addEventListener('mousedown', moveRight);
+btnL.addEventListener('touchstart', e=>{e.preventDefault();moveLeft();},{passive:false});
+btnR.addEventListener('touchstart', e=>{e.preventDefault();moveRight();},{passive:false});
+document.addEventListener('keydown', e=>{
+  if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A') moveLeft();
+  if(e.key==='ArrowRight'||e.key==='d'||e.key==='D') moveRight();
+});
+</script>
+</body>
+</html>
